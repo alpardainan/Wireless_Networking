@@ -1,0 +1,51 @@
+% Alp Arda Inan
+% 4511344
+% Reference: Example report sent by the instructor.
+
+detected_arc = [-55,-57.7,-62,-63,-65.6,-64, -71.7];
+detected_3mE = [-57,-59,-64,-69,-66,-46,-49];
+
+detected = [detected_arc detected_3mE];
+
+not_detected_3mE = [-77,-78,-78.7, -77, -77, -77, -76.7];
+not_detected_arc = [-76.7, -77, -78.7, -78, -77, -77, -77];
+
+not_detected = [not_detected_arc not_detected_3mE];
+
+mean_detected = mean(detected);
+mean_not_detected = mean(not_detected);
+
+std_detected = std(detected);
+std_not_detected = std(not_detected);
+
+
+db_levels = linspace(-90,30,50);
+probability_no_target = makedist('Normal','mu', mean_not_detected,'sigma',std_not_detected);
+probability_target = makedist('Normal', 'mu', mean_detected,'sigma',std_detected);
+
+threshold = -60 ; 
+probability_signal_detection = 1 - cdf(probability_target,threshold);
+probability_false_alarm = 1 - cdf(probability_no_target,threshold);
+
+% Plotting the ROC curves and pdf functions.
+figure(1);
+plot(db_levels,probability_no_target.pdf(db_levels));
+hold on
+plot(db_levels,probability_target.pdf(db_levels),'m');
+title('Probability Distribution Functions of signal levels when there is signal and when there is no signal')
+hold on
+Y = 0:0.1:0.3;
+X = threshold * ones(size(Y));
+plot(X, Y, 'r--')
+legend('No signal', 'Signal','Threshold') 
+xlabel ('Level (dB)')
+print -depsc pdf_signa_no_signal
+
+roc_probability_falsealaram = 1 - cdf(probability_no_target,db_levels); 
+roc_probability_signal_detection = 1 - cdf(probability_target,db_levels); 
+figure(2);
+plot(roc_probability_falsealaram,roc_probability_signal_detection);
+title('ROC Curve')
+ylabel ('True Positive (Probability of Detection)') 
+xlabel ('False Positive (Probability of False Alarm)')
+print -depsc roc_curve
