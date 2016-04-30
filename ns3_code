@@ -1,0 +1,203 @@
+// Wireless Networking course NS3 project code.
+// Alp Arda Inan
+// 4511344
+
+#include "ns3/core-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/network-module.h"
+#include "ns3/applications-module.h"
+#include "ns3/wifi-module.h"
+#include "ns3/mobility-module.h"
+#include "ns3/csma-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/flow-monitor-module.h"
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <array>
+#include "ns3/random-variable-stream.h"
+
+
+using namespace ns3;
+NS_LOG_COMPONENT_DEFINE ("Wifi_4511344");
+
+int main (int argc, char *argv[])
+{
+    
+    std::ofstream stats_file;
+    stats_file.open ("simulation_stats.txt");
+    
+    for (int index = 0; index < 6; ++index)
+    {
+    
+        // Create randomness based on time
+        // This part is taken from the example report send by the instructor.
+        time_t timex;
+        time(&timex);
+        RngSeedManager::SetSeed(timex);
+        RngSeedManager::SetRun(1);
+        
+        bool verbose = false;
+        uint32_t nWifi = 2;
+        double xDistance = 10.0;
+        float flow_throughput = 0;
+        float flow_delay = 0;
+        
+        float total_throughput = 0;
+        float total_delay = 0;
+        int total_rx_packets = 0;
+        //float throughput_flow = 0;
+        //float delay_flow = 0.0;
+        
+        //float average_delay = 0;
+        //float average_throughput = 0;
+        StringValue DataRate;
+        DataRate = StringValue("DsssRate11Mbps");
+        
+        
+        
+        std::array<int,13> number_nodes = {{1,2,3,4,5,6,7,8,9,10,15,20,25}};
+        //std::array<int,1> number_nodes = {{10}};
+
+        
+        
+        
+        // CommandLine is enabled for nWifi to be able to change the value from command line.
+        CommandLine cmd;
+        cmd.AddValue("nWifi","Number of STAs",nWifi);
+        cmd.Parse (argc,argv);
+        
+        if (verbose)
+        {
+            LogComponentEnable("UdpEchoClientApplication", LOG_LEVEL_INFO);
+            LogComponentEnable("UdpEchoServerApplication", LOG_LEVEL_INFO);
+        }
+        
+        for (int i = 0;i<number_nodes.size();++i)
+        {
+            nWifi = number_nodes[i];
+            // Nodes are created and stored in a NodeContainer.
+            NodeContainer wifiStaNodes, wifiApNode;
+            wifiStaNodes.Create (nWifi);
+            wifiApNode.Create (1);
+            std::cout << nWifi << " STA nodes are created." << '\n';
+            std::cout << "Access Point is created." << '\n';
+            
+            
+            // Channel is created using YansWifiChannelHelper.
+            YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
+            YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
+            phy.SetChannel (channel.Create ());
+            
+            WifiHelper wifi = WifiHelper::Default ();
+            wifi.SetStandard(WIFI_PHY_STANDARD_80211b); // Setting the standard to 802.11b
+            wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager","DataMode", DataRate,"ControlMode", DataRate);
+            //wifi.SetRemoteStationManager ("ns3::AarfWifiManager");
+            
+            NqosWifiMacHelper mac = NqosWifiMacHelper::Default ();
+            Ssid ssid = Ssid ("Alp_4511344_wifi");
+            mac.SetType ("ns3::StaWifiMac", "Ssid", SsidValue (ssid), "ActiveProbing", BooleanValue (false));
+            NetDeviceContainer staDevices;
+            
+            for (int i=0;i<nWifi;i++)
+            {
+                staDevices.Add(wifi.Install (phy, mac, wifiStaNodes.Get (i)));
+            }
+            
+            mac.SetType ("ns3::ApWifiMac", "Ssid", SsidValue (ssid), "BeaconGeneration", BooleanValue (true), "BeaconInterval", TimeValue (Seconds (5)));
+            NetDeviceContainer apDevice;
+            apDevice = wifi.Install (phy, mac, wifiApNode);
+            
+            // Mobilities of the nodes are set.
+            MobilityHelper mobility;
+            MobilityHelper mobility2;
+            
+            // All space coordinates in meter
+            mobility.SetPositionAllocator ("ns3::GridPositionAllocator", "MinX", DoubleValue (0.0), "MinY", DoubleValue (0.0), "DeltaX", DoubleValue (xDistance), "DeltaY", DoubleValue (10.0), "GridWidth", UintegerValue (3), "LayoutType", StringValue ("RowFirst"));
+            //mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+            //mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel","Mode",StringValue ("Time"),"Time",StringValue("1s"),"Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),"Bounds", StringValue("0|50|0|50"));
+            mobility.SetMobilityModel ("ns3::RandomWalk2dMobilityModel","Bounds", RectangleValue (Rectangle (-50, 50, -50, 50)), "Distance", ns3::DoubleValue (5.0));
+            //mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+            mobility.Install (wifiStaNodes);
+            mobility2.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+            mobility2.Install (wifiApNode);
+            
+            // Protocols are added to the nodes.
+            InternetStackHelper stack;
+            stack.Install (wifiStaNodes);
+            stack.Install(wifiApNode);
+            
+            //IP addresses are given to the nodes in the network.
+            Ipv4AddressHelper address;
+            Ipv4InterfaceContainer wifiInterfaces, wifiApInterface;
+            address.SetBase ("10.1.1.0", "255.255.255.0");
+            wifiApInterface = address.Assign (apDevice);
+            wifiInterfaces = address.Assign (staDevices);
+            
+            // Server application is created which is put into the AP(Access Point node)
+            UdpServerHelper udpServer (9);
+            ApplicationContainer serverApps = udpServer.Install (wifiApNode);
+            serverApps.Start (Seconds (1.0));
+            serverApps.Stop (Seconds (10.0));
+            
+            // Client applications are created and put into the STA nodes.
+            UdpClientHelper udpClient (wifiApInterface.GetAddress (0), 9);
+            udpClient.SetAttribute ("MaxPackets", UintegerValue (10000));
+            udpClient.SetAttribute ("Interval", TimeValue (Seconds (0.002)));
+            udpClient.SetAttribute ("PacketSize", UintegerValue (1472));
+            ApplicationContainer clientApps;
+            for(int i=0;i<nWifi;i++)
+            {
+                clientApps.Add(udpClient.Install (wifiStaNodes.Get (i)));
+            }
+            std::cout << "Channel and the devices are configured and ready for the simulation.." << '\n';
+            clientApps.Start (Seconds (2.0));
+            clientApps.Stop (Seconds (9.0));
+            Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+            Simulator::Stop (Seconds (10.0));
+            
+            phy.EnablePcapAll ("wifi_4511344", true);
+            
+            // Flow monitor
+            FlowMonitorHelper flowHelper;
+            Ptr<FlowMonitor> flowMonitor = flowHelper.InstallAll();
+            
+            Simulator::Run ();
+            flowMonitor->CheckForLostPackets ();
+            flowMonitor->SerializeToXmlFile("Wifi_4511344.xml", false, false);
+            std::map<FlowId, FlowMonitor::FlowStats> stats_container = flowMonitor->GetFlowStats();
+            for (std::map<FlowId,FlowMonitor::FlowStats>::iterator i = stats_container.begin(); i != stats_container.end(); ++i)
+            {
+                flow_throughput = (i->second.rxBytes * 8.0)/(i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds())/1024;
+                flow_delay = (i->second.timeLastRxPacket.GetSeconds() - i->second.timeFirstTxPacket.GetSeconds());
+                std::cout << "Throughput for Flow " << i->first << ": " << flow_throughput << " Kbps" << '\n';
+                std::cout << "Delay for Packet " << i->first << ": " << flow_delay/i->second.rxPackets << "Seconds" << '\n';
+                total_throughput = total_throughput + flow_throughput;
+                total_delay = total_delay + flow_delay;
+                total_rx_packets = total_rx_packets + i->second.rxPackets;
+                
+            }
+            
+            // Average Througput and Delay are printed.
+            std::cout << "Average Throughput per flow: " << total_throughput/nWifi << " Kbps" << '\n';
+            std::cout << "Average Delay per Packet: " << total_delay/(total_rx_packets) << "Seconds" << '\n';
+            std::cout << "size: " << stats_container.size() << '\n';
+            
+            //Statistics are written to a text file to transfer them to Matlab for plots.
+            stats_file << number_nodes[i] << " ";
+            stats_file << total_throughput/nWifi << " ";
+            stats_file << total_delay/(total_rx_packets) << '\n';
+            total_throughput = 0;
+            total_delay = 0;
+            total_rx_packets = 0;
+            //std::cout << stats_container.size();
+            
+            Simulator::Destroy ();
+        }
+        
+    }
+        //total_throughput = 0;
+        stats_file.close();
+        return 0;
+}
